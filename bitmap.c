@@ -4,6 +4,7 @@
 
 // ogni elemento di BitMapEntryKey (entry_num e bit_num) indica il blocco da sinistra.
 
+
 void BitMap_print(BitMap* bmap){
     int i;
 
@@ -14,6 +15,7 @@ void BitMap_print(BitMap* bmap){
     }
 
 }
+
 
 BitMapEntryKey BitMap_blockToIndex(int num){
 
@@ -31,6 +33,7 @@ BitMapEntryKey BitMap_blockToIndex(int num){
     return bitmap_entry;
 
 }
+
 
 int BitMap_indexToBlock(int entry, char bit_num){
 
@@ -50,3 +53,59 @@ int BitMap_indexToBlock(int entry, char bit_num){
     return index;
 
 }
+
+
+int BitMap_get(BitMap* bmap, int start, int status){
+    BitMapEntryKey chiave;
+    int i, entry;
+    char offset;
+    int found = 0;
+
+    if(start > NUM_BITS_BITMAP -1){
+        printf("Posizione iniziale non valida\n");
+        return -1;
+    }
+
+    for(i = start; i < bmap->num_bits && found == 0; i++){
+        chiave = BitMap_blockToIndex(i);
+        entry = chiave.entry_num;
+        offset = chiave.bit_num;
+
+        if(status == 1){
+            if(((bmap->entries[entry]) >> (7 - offset)) &1){
+                found = 1;
+            }
+        } else {
+            if(!(((bmap->entries[entry]) >> (7 - offset)) &1)){
+                found = 1;
+            }
+        }
+    }
+
+    if(found == 0){
+        printf("Non è stato trovato nessun bit a status da start\n");
+        return -1;
+    }
+
+    return BitMap_indexToBlock(entry,offset);
+}
+
+
+int BitMap_set(BitMap* bmap, int pos, int status){
+
+    if(pos > ((bmap->num_bits) - 1)){
+        printf("Errore: posizione non valida\n");
+        return -1;
+    }
+
+    BitMapEntryKey bek = BitMap_blockToIndex(pos);
+    if(status == 1){
+        bmap->entries[bek.entry_num] |= (1 << (7 - bek.bit_num));
+    } else {
+        bmap->entries[bek.entry_num] &= (~(1 << (7 - bek.bit_num)));
+    }
+
+    return 0;
+
+}
+
