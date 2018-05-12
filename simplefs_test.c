@@ -53,6 +53,19 @@ int main(int agc, char** argv) {
     int index = BitMap_indexToBlock(1,1);
     printf("Indice: %d\n", index);
 
+    printf("\n-------Verifica terza funzione Bitmap-------\n");
+
+    int index_bit = BitMap_get(&bmap,2,0);
+    printf("Indice del primo bit a 'status': %d\n", index_bit);
+
+    printf("\n-------Verifica quarta funzione Bitmap-------\n");
+
+    int ret = BitMap_set(&bmap,7,0);
+    printf("Ret = %d\n", ret);
+
+    BitMap_print(&bmap);
+    printf("\n");
+
     return 0;
 
 }
