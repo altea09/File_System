@@ -1,7 +1,8 @@
 #pragma once
 
-#define BYTE_SIZE 8    //aggiunto
-#define NUM_BITS_BITMAP  16  //aggiunto
+#define BYTE_SIZE 8
+#define NUM_BLOCKS 17  //numero dei blocchi dati (num_blocks nei parametri delle funzioni)
+#define NUM_BITS_BITMAP  (NUM_BLOCKS-1)
 
 
 typedef struct{
@@ -28,5 +29,8 @@ int BitMap_get(BitMap* bmap, int start, int status);
 // sets the bit at index pos in bmap to status
 int BitMap_set(BitMap* bmap, int pos, int status);
 
-//print the bitmap                                     //aggiunto
+//print the bitmap
 void BitMap_print(BitMap* bmap);
+
+//Inizializza bitmap
+int BitMap_initializer (BitMap* bmap, int byte_bitmap, int num_block_bitmap);
