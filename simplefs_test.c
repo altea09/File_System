@@ -2,6 +2,7 @@
 #include <stdio.h>
 
 #include "bitmap.h" //aggiunto
+#include "disk_driver.h" //aggiunto
 #include <stdlib.h> //aggiunto
 
 int main(int agc, char** argv) {
@@ -17,6 +18,9 @@ int main(int agc, char** argv) {
 
     //Verifica correttezza bitmap (caso NUM_BITS_BITMAP = 16 => 2 bytes)
     int i;
+
+    int num_blocks = NUM_BLOCKS;
+
     int nbytes = (NUM_BITS_BITMAP / BYTE_SIZE) + ((NUM_BITS_BITMAP % BYTE_SIZE == 0)? 0 : 1);  //calcolo il numero necessario di byte per contenere la bitmap
     printf("Numero bytes bitmap: %d\n", nbytes);
     char* b = (char*) malloc(nbytes * sizeof(char)); //alloco i byte necessari
@@ -65,6 +69,27 @@ int main(int agc, char** argv) {
 
     BitMap_print(&bmap);
     printf("\n");
+
+     printf("\n-------Verifica DiskDriver-------\n");
+
+    //Verifica delle funzioni del DiskDriver
+
+    printf("\n-------Verifica Disk_Driver_init + Disk_Driver_readBlockHeader-------\n");
+
+    DiskDriver* disk = (DiskDriver*) malloc(sizeof(DiskDriver));
+    char* filename = "filename";
+    DiskDriver_init(disk, filename, num_blocks);
+
+    /*Funzione di stampa per testare la bitmap nel caso di file già esistente (da inserire nella funzione Disk_Driver_init)
+     *
+     * int i;
+     * for(i = 0; i < byte_bitmap * BYTE_SIZE; i++){
+     * BitMapEntryKey entry_bitmap = BitMap_blockToIndex(i);
+     * printf("Entry_num = %d\nBit_num = %d\nStatus = %d \n", entry_bitmap.entry_num, entry_bitmap.bit_num , ((disk->bitmap->entries[entry_bitmap.entry_num]) >> (7 - entry_bitmap.bit_num)) & 1 );
+     * printf("\n");
+     * }
+     *
+     */
 
     return 0;
 
