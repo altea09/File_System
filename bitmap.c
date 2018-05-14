@@ -1,4 +1,5 @@
 #include "bitmap.h"
+#include "disk_driver.h"
 
 #include <stdio.h>
 
@@ -107,5 +108,23 @@ int BitMap_set(BitMap* bmap, int pos, int status){
 
     return 0;
 
+}
+
+int BitMap_initializer(BitMap* bmap, int byte_bitmap, int num_block_bitmap){
+    bmap->num_bits = byte_bitmap * BYTE_SIZE;
+    bmap->entries = (char*) (bmap + sizeof(BitMap)); //punta al primo byte della bitmap
+
+    int i;
+    for(i=0; i < bmap->num_bits; i++){
+
+        if(i < num_block_bitmap){
+            BitMap_set(bmap, i,1);
+        }
+        else{
+         BitMap_set(bmap, i,0);
+        }
+    }
+    BitMap_print(bmap);
+    return 0;
 }
 
