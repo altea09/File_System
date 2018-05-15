@@ -1,9 +1,9 @@
 #include "simplefs.h"
 #include <stdio.h>
 
-#include "bitmap.h" //aggiunto
-#include "disk_driver.h" //aggiunto
-#include <stdlib.h> //aggiunto
+#include "bitmap.h"
+#include "disk_driver.h"
+#include <stdlib.h>
 
 int main(int agc, char** argv) {
 
@@ -90,6 +90,24 @@ int main(int agc, char** argv) {
      * }
      *
      */
+
+     printf("\n-------Verifica Disk_Driver_writeBlock-------\n");
+
+    int* src = (int*) malloc(BLOCK_SIZE / sizeof(int));
+    for(i = 0; i < BLOCK_SIZE / sizeof(int); i++){
+        if((i % 2) == 0) src[i] = 1;
+        else src[i] = 0;
+    }
+
+    int scrittura = DiskDriver_writeBlock(disk, src, 3);
+    if(scrittura == 0) printf("Scrittura avvenuta\n");
+    else printf("Scrittura non riuscita\n");
+
+    printf("\n-------Verifica Disk_Driver_readBlock-------\n");
+
+    int lettura = DiskDriver_readBlock(disk, src, 0);
+    if(lettura == 0) printf("Lettura avvenuta\n");
+    else printf("Lettura non riuscita\n");
 
     return 0;
 
