@@ -145,5 +145,78 @@ int DiskDriver_readBlockHeader(DiskDriver* disk, void* dest, int index_header){
 }
 
 
+int DiskDriver_readBlock(DiskDriver* disk, void* dest, int block_num){      //block_num = indice del blocco. Il blocco 0 corrisponde al primo bit a 0 della bitmap (dopo i bit a 1 dei blocchi occupati dalla bitmap => blocco 0 logico)
+    int ret, lettura, indice_blocco;
+
+    if((disk == NULL) || (dest == NULL) || (block_num > (((disk->header->num_blocks)- 1 - disk->header->bitmap_blocks))) || (block_num < 0)){
+        return -1;
+        printf("Impossibile leggere\n");
+    }
+
+    indice_blocco = block_num + disk->header->bitmap_blocks;
+    BitMapEntryKey bek = BitMap_blockToIndex(indice_blocco);
+    if(!((disk->bitmap->entries[bek.entry_num]) >> (7 - bek.bit_num) & 1)){   // verifico se il blocco è occupato: se no, restituisco errore nella lettura.
+        printf("Errore: si sta tentando di leggere un blocco vuoto\n");
+        return -1;
+    }
+
+    ret = lseek(disk->fd, BLOCK_SIZE * ((disk->header->bitmap_blocks) + 1 + block_num), SEEK_SET);
+    if(ret == -1) return -1;
+
+
+    lettura = read(disk->fd, dest, BLOCK_SIZE);
+    if(lettura == -1){
+        printf("Errore nella lettura\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+
+int DiskDriver_writeBlock(DiskDriver* disk, void* src, int block_num){
+    int ret, indice_blocco, scrittura, bmap;
+
+    if((disk == NULL) || (src == NULL) || (block_num > (((disk->header->num_blocks)- 1 - disk->header->bitmap_blocks)))|| (block_num < 0)){
+        printf("Tentativo di scrittura fallito\n");
+        return -1;
+    }
+
+    indice_blocco = block_num + disk->header->bitmap_blocks;    //indice all'interno della bitmap
+    BitMapEntryKey bek = BitMap_blockToIndex(indice_blocco);
+    if(((disk->bitmap->entries[bek.entry_num]) >> (7 - bek.bit_num) & 1)){   // verifico se il blocco è vuoto: se no, restituisco errore nella scrittura.
+        printf("Errore: si sta tentando di scrivere in un blocco pieno\n");
+        return -1;
+    }
+
+    ret = lseek(disk->fd, BLOCK_SIZE * ((disk->header->bitmap_blocks) + 1 + block_num), SEEK_SET);
+    if(ret == -1) return -1;
+
+    scrittura = write(disk->fd, src, BLOCK_SIZE);
+    if(scrittura == -1){
+        printf("Errore nella scrittura\n");
+        return -1;
+    }
+
+
+    //se la scrittura è andatata a buon fine aggiorno la bitmap.
+    bmap = BitMap_set(disk->bitmap, indice_blocco, 1);
+    if(bmap != 0){
+        printf("Errore nel settaggio della bitmap\n");
+        return -1;
+    }
+
+    //Decremento il numero di blocchi liberi.
+    disk->header->free_blocks -=1;
+
+    BitMap_print(disk->bitmap);
+
+    return 0;
+
+}
+
+
+
+
 
 
