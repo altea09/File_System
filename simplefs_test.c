@@ -109,6 +109,28 @@ int main(int agc, char** argv) {
     if(lettura == 0) printf("Lettura avvenuta\n");
     else printf("Lettura non riuscita\n");
 
+    printf("\n-------Verifica Disk_Driver_getfreeBlock-------\n");
+
+    int index_bloccoLogico = DiskDriver_getFreeBlock(disk, 4);
+    printf("Indice blocco logico: %d\n", index_bloccoLogico);
+
+    printf("\n-------Verifica Disk_Driver_freeBlock-------\n");
+
+    int liberato = DiskDriver_freeBlock(disk, 3);
+    if(liberato == -1) printf("Errore nella liberazione del blocco\n");
+    else printf("Blocco liberato con successo\n");
+
+    printf("\n-------Verifica Disk_Driver_getfreeBlock-------\n");
+
+    int index_bloccoLogico2 = DiskDriver_getFreeBlock(disk, 0);
+    printf("Indice blocco logico: %d\n", index_bloccoLogico2);
+
+    printf("\n-------Verifica Disk_Driver_flush-------\n");
+
+    int flush1 = DiskDriver_flush(disk);
+    if(flush1 == -1) printf("Errore nella flush\n");
+    else printf("Flush fatta!\n");
+
     return 0;
 
 }
