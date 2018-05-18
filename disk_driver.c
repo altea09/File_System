@@ -216,7 +216,88 @@ int DiskDriver_writeBlock(DiskDriver* disk, void* src, int block_num){
 }
 
 
+int DiskDriver_freeBlock(DiskDriver* disk, int block_num){
+
+    int indice_blocco, bmap;
+
+    if((disk == NULL) || (block_num >= (((disk->header->num_blocks)-1 - disk->header->bitmap_blocks))) || (block_num < 0)){
+        printf("Errore\n");
+        return -1;
+    }
+
+    indice_blocco = block_num + disk->header->bitmap_blocks;
+
+    BitMapEntryKey bek = BitMap_blockToIndex(indice_blocco);
+    if(!((disk->bitmap->entries[bek.entry_num]) >> (7 - bek.bit_num) & 1)){   // verifico se il blocco è occupato: se no, restituisco errore.
+        printf("Errore: si sta tentando di svuotare un blocco vuoto\n");
+        return -1;
+    }
+
+    //faccio risultare libero il blocco nella bitmap settando a 0
+    bmap = BitMap_set(disk->bitmap, indice_blocco, 0);
+    if(bmap != 0){
+        printf("Errore nel settaggio della bitmap\n");
+        return -1;
+    }
+
+    //Aggiorno il numero di blocchi liberi
+    disk->header->free_blocks += 1;
+
+    if(disk->header->first_free_block == -1){
+        disk->header->first_free_block = indice_blocco;     //indice del primo blocco libero all'interno della bitmap (NON è l'indice del blocco logico!)
+    }
+    if(indice_blocco < disk->header->first_free_block){      //se il blocco liberato è minore del primo blocco libero devo aggiornare il first free block
+        disk->header->first_free_block = indice_blocco;
+    }
+
+    BitMap_print(disk->bitmap);
+
+    return 0;
+
+}
 
 
+int DiskDriver_getFreeBlock(DiskDriver* disk, int start){
+    //start è l'indice nella bitmap (se volessi considerlo come indice del blocco logico, basterebbe passare start + num_block_bitmap a start)
 
 
+    int indice_blocco;
+
+    if((disk == NULL) || (start < 0) || (start >= ((disk->header->num_blocks)-1))){
+        printf("Impossibile restituire il blocco\n");
+        return -1;
+    }
+
+    int free_block_index = BitMap_get(disk->bitmap, start, 0); //restituisce l'indice all'interno della bitmap
+    if(free_block_index == -1){
+        printf("Non è stato trovato alcun blocco libero\n");
+        return -1;
+    }
+
+    indice_blocco = free_block_index - disk->header->bitmap_blocks;     //indice del blocco logico (il primo blocco libero per i dati ha indice logico 0)
+    disk->header->first_free_block = indice_blocco + disk->header->bitmap_blocks;   //indice all'interno della bitmap
+    return indice_blocco;    //restituisce l'indice del primo blocco logico libero
+
+}
+
+
+int DiskDriver_flush(DiskDriver* disk){
+
+    int num_disco_ris, num_block_bitmap, flush, file;
+
+    if(disk == NULL) return -1;
+
+    int byte_bitmap = (disk->header->num_blocks / 8) + ((disk->header->num_blocks % 8) != 0)? 1:0;
+
+    num_block_bitmap = ((sizeof(BitMap) + byte_bitmap)/BLOCK_SIZE) + ((((sizeof(BitMap) + byte_bitmap) % BLOCK_SIZE) == 0)? 0:1);
+    num_disco_ris = num_block_bitmap + 1;
+
+    flush = msync(disk->header, num_disco_ris * BLOCK_SIZE, MS_SYNC);
+    if(flush == -1) return -1;
+
+    file = fsync(disk->fd);
+    if(file == -1) return -1;
+
+    return 0;
+
+}
