@@ -22,42 +22,10 @@ void DiskDriver_init(DiskDriver* disk, const char* filename, int num_blocks){
     int seek1;
     int seek2;
 
-    int fd = open(filename, O_RDWR | O_CREAT | O_EXCL, 0666);       //apro o creo il file a seconda di se esista già o meno
-    if(fd == -1){
-        if(errno == EEXIST){     //caso di file già esistente
-            fd = open(filename, O_RDWR, 0666);
-            void* primo_blocco;
-            //Metto nel DiskDriver il file descriptor
-            disk->fd = fd;
-            primo_blocco = (void*) malloc(BLOCK_SIZE);
-            int ret = DiskDriver_readBlockHeader(disk, primo_blocco, 0);
-            if(ret == -1){
-                printf("Errore nella lettura del primo blocco del file già esistente\n");
-                exit(-1);
-            } else{
-                printf("Lettura del primo blocco già esistente andata a buon fine\n");
-            }
+    access(filename, F_OK);
 
-            num_block_bitmap = (((DiskHeader*)primo_blocco)->bitmap_blocks);
-            byte_bitmap = (((((DiskHeader*)primo_blocco)->num_blocks)-1)/ BYTE_SIZE) + (((((((DiskHeader*)primo_blocco)->num_blocks)-1) % BYTE_SIZE) == 0)? 0:1);
-            num_disco_ris = num_block_bitmap + 1;
-            int* map = mmap(0, (num_disco_ris)*BLOCK_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-            if (map == MAP_FAILED) {
-                close(fd);
-                printf("Errore nel mmapping del file\n");
-                exit(-1);
-            }
-
-            disk->header = (DiskHeader*) map;
-            disk->bitmap = (BitMap*)(map + BLOCK_SIZE);
-            disk->bitmap->entries = (char*) (disk->bitmap + sizeof(BitMap));
-
-        } else{
-            printf("Errore nella creazione del file\n");
-            exit(-1);
-        }
-
-    } else{
+    int fd = open(filename, O_RDWR | O_CREAT, 0666); //creo il file
+    if(fd == -1) return;
 
     seek1 = lseek(fd, (BLOCK_SIZE) -1, SEEK_SET);
     if (seek1 == -1) {
@@ -89,7 +57,7 @@ void DiskDriver_init(DiskDriver* disk, const char* filename, int num_blocks){
     }
 
 
-    int* map = mmap(0, (num_disco_ris)* BLOCK_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    void* map = mmap(0, (num_disco_ris)* BLOCK_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (map == MAP_FAILED) {
         close(fd);
         printf("Errore nel mmapping del file\n");
@@ -121,8 +89,54 @@ void DiskDriver_init(DiskDriver* disk, const char* filename, int num_blocks){
 
     disk->bitmap->entries = (char*) (disk->bitmap + sizeof(BitMap));
 
-    }
+
 }
+
+int DiskDriver_readDisk(DiskDriver* disk, const char* filename){
+    int accesso, fd, num_block_bitmap, num_disco_ris;
+    void* primo_blocco;
+
+    accesso = access(filename, F_OK);
+    if(accesso == -1) return -1;
+
+    fd = open(filename, O_RDWR,0666); //apro il file
+
+    //Metto nel DiskDriver il file descriptor
+    disk->fd = fd;
+    primo_blocco = (void*) malloc(BLOCK_SIZE);
+    int ret = DiskDriver_readBlockHeader(disk, primo_blocco, 0);
+    if(ret == -1){
+        printf("Errore nella lettura del primo blocco del file già esistente\n");
+        exit(-1);
+    } else{
+        printf("Lettura del primo blocco già esistente andata a buon fine\n");
+    }
+
+    num_block_bitmap = (((DiskHeader*)primo_blocco)->bitmap_blocks);
+    num_disco_ris = num_block_bitmap + 1;
+    void* map = mmap(0, (num_disco_ris)*BLOCK_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (map == MAP_FAILED) {
+        close(fd);
+        printf("Errore nel mmapping del file\n");
+        exit(-1);
+    }
+
+    //Carico il DiskDriver
+    disk->header = (DiskHeader*) map;
+    disk->bitmap = (BitMap*)(map + BLOCK_SIZE);
+    disk->bitmap->entries = (char*) (disk->bitmap + sizeof(BitMap));
+
+/*Stampa bitmap
+    int i;
+    for(i=0; i < byte_bitmap * BYTE_SIZE; i++){
+        BitMapEntryKey entry_bitmap = BitMap_blockToIndex(i);
+        printf("Entry_num = %d\nBit_num = %d\nStatus = %d \n", entry_bitmap.entry_num, entry_bitmap.bit_num , ((disk->bitmap->entries[entry_bitmap.entry_num]) >> (7 - entry_bitmap.bit_num)) & 1 );
+        printf("\n");
+    }
+*/
+    return 0;
+}
+
 
 
 int DiskDriver_readBlockHeader(DiskDriver* disk, void* dest, int index_header){
@@ -184,9 +198,9 @@ int DiskDriver_writeBlock(DiskDriver* disk, void* src, int block_num){
 
     indice_blocco = block_num + disk->header->bitmap_blocks;    //indice all'interno della bitmap
     BitMapEntryKey bek = BitMap_blockToIndex(indice_blocco);
-    if(((disk->bitmap->entries[bek.entry_num]) >> (7 - bek.bit_num) & 1)){   // verifico se il blocco è vuoto: se no, restituisco errore nella scrittura.
-        printf("Errore: si sta tentando di scrivere in un blocco pieno\n");
-        return -1;
+
+    if((((disk->bitmap->entries[bek.entry_num]) >> (7 - bek.bit_num) & 1)) == 0){
+        disk->header->free_blocks -= 1;
     }
 
     ret = lseek(disk->fd, BLOCK_SIZE * ((disk->header->bitmap_blocks) + 1 + block_num), SEEK_SET);
@@ -205,11 +219,6 @@ int DiskDriver_writeBlock(DiskDriver* disk, void* src, int block_num){
         printf("Errore nel settaggio della bitmap\n");
         return -1;
     }
-
-    //Decremento il numero di blocchi liberi.
-    disk->header->free_blocks -=1;
-
-    BitMap_print(disk->bitmap);
 
     return 0;
 
@@ -249,8 +258,6 @@ int DiskDriver_freeBlock(DiskDriver* disk, int block_num){
     if(indice_blocco < disk->header->first_free_block){      //se il blocco liberato è minore del primo blocco libero devo aggiornare il first free block
         disk->header->first_free_block = indice_blocco;
     }
-
-    BitMap_print(disk->bitmap);
 
     return 0;
 
