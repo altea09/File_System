@@ -62,10 +62,11 @@ typedef struct {
 
 
 
-  
+
 typedef struct {
   DiskDriver* disk;
-  // add more fields if needed
+  char* file_name;
+  int num_blocks;
 } SimpleFS;
 
 // this is a file handle, used to refer to open files
@@ -102,7 +103,7 @@ void SimpleFS_format(SimpleFS* fs);
 // an empty file consists only of a block of type FirstBlock
 FileHandle* SimpleFS_createFile(DirectoryHandle* d, const char* filename);
 
-// reads in the (preallocated) blocks array, the name of all files in a directory 
+// reads in the (preallocated) blocks array, the name of all files in a directory
 int SimpleFS_readDir(char** names, DirectoryHandle* d);
 
 
@@ -133,7 +134,7 @@ int SimpleFS_seek(FileHandle* f, int pos);
 // it does side effect on the provided handle
  int SimpleFS_changeDir(DirectoryHandle* d, char* dirname);
 
-// creates a new directory in the current one (stored in fs->current_directory_block)
+// creates a new directory in the current one
 // 0 on success
 // -1 on error
 int SimpleFS_mkDir(DirectoryHandle* d, char* dirname);
@@ -141,8 +142,13 @@ int SimpleFS_mkDir(DirectoryHandle* d, char* dirname);
 // removes the file in the current directory
 // returns -1 on failure 0 on success
 // if a directory, it removes recursively all contained files
-int SimpleFS_remove(SimpleFS* fs, char* filename);
+int SimpleFS_remove(DirectoryHandle* d, char* filename);
 
+//cerca un/a file/directory "filename" nella directory d: se lo trova ritorna il suo primo blocco altrimenti -1.
+// Flag indica se deve cercare un file o una directory (0 file, 1 directory).
+int SimpleFS_Search(DirectoryHandle* d, const char* filename, int flag);
 
-  
+//aggiorna gli elementi della directory: ritorna 0 se va tutto ok, -1 in caso di fallimento.
+int SimpleFS_updateElements(DirectoryHandle* d, int new_block_file);
+
 
