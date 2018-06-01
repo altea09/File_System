@@ -14,7 +14,6 @@ typedef struct {
 
 typedef struct {
   DiskHeader* header; // mmapped
-  //char* bitmap_data;  // mmapped (bitmap)
   BitMap* bitmap; //mmapped
   int fd; // for us
 } DiskDriver;
@@ -53,3 +52,6 @@ int DiskDriver_flush(DiskDriver* disk);
 
 //leggi blocco riservato al diskheader
 int DiskDriver_readBlockHeader(DiskDriver* disk, void* dest, int block_num);
+
+//legge il disco (ritorna 0 se va a buon fine, -1 in caso contrario)
+int DiskDriver_readDisk(DiskDriver* disk, const char* filename);
