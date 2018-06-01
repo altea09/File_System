@@ -74,13 +74,13 @@ int main(int agc, char** argv) {
 
     //Verifica delle funzioni del DiskDriver
 
-    printf("\n-------Verifica Disk_Driver_init + Disk_Driver_readBlockHeader-------\n");
+    printf("\n-------Verifica Disk_Driver_init-------\n");
 
     DiskDriver* disk = (DiskDriver*) malloc(sizeof(DiskDriver));
     char* filename = "filename";
     DiskDriver_init(disk, filename, num_blocks);
 
-    /*Funzione di stampa per testare la bitmap nel caso di file già esistente (da inserire nella funzione Disk_Driver_init)
+    /*Funzione di stampa per testare la bitmap nel caso di file già esistente (da inserire nella funzione Disk_Driver_readDisk)
      *
      * int i;
      * for(i = 0; i < byte_bitmap * BYTE_SIZE; i++){
@@ -103,9 +103,11 @@ int main(int agc, char** argv) {
     if(scrittura == 0) printf("Scrittura avvenuta\n");
     else printf("Scrittura non riuscita\n");
 
+    BitMap_print(disk->bitmap);
+
     printf("\n-------Verifica Disk_Driver_readBlock-------\n");
 
-    int lettura = DiskDriver_readBlock(disk, src, 0);
+    int lettura = DiskDriver_readBlock(disk, src, 1);
     if(lettura == 0) printf("Lettura avvenuta\n");
     else printf("Lettura non riuscita\n");
 
@@ -119,6 +121,8 @@ int main(int agc, char** argv) {
     int liberato = DiskDriver_freeBlock(disk, 3);
     if(liberato == -1) printf("Errore nella liberazione del blocco\n");
     else printf("Blocco liberato con successo\n");
+
+    BitMap_print(disk->bitmap);
 
     printf("\n-------Verifica Disk_Driver_getfreeBlock-------\n");
 
