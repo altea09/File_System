@@ -326,3 +326,123 @@ int SimpleFS_updateElements(DirectoryHandle* d, int new_block_file){
     return 0;
 
 }
+
+int SimpleFS_readDir(char** names, DirectoryHandle* d){
+     int num_entry, dim, num_blocks_fdb, ret, i, num_blocks_db, next_dir_block;
+
+    if(d == NULL) return -1;
+
+    //Calcolo il numero di entry della directory
+    num_entry = d->dcb->num_entries;
+
+    if(num_entry == 0){
+        printf("La directory è vuota: non ci sono nomi di file da leggere\n");
+        return -1;
+    }
+
+    //Calcolo la dimensione (al massimo mi servirà tanto spazio quanto è la lunghezza massima del nome * il numero di entries
+    dim = ((num_entry)* 128);
+    *names = (char*) malloc(dim);
+
+    num_blocks_fdb = BLOCK_SIZE - sizeof(BlockHeader) - sizeof(FileControlBlock);
+
+
+    memset(*names, 0,dim);
+    FirstFileBlock* ffb = (FirstFileBlock*) malloc(sizeof(FirstFileBlock));
+    for(i = 0; (i < num_blocks_fdb) && (i < num_entry); i++){
+        ret = DiskDriver_readBlock(d->sfs->disk, ffb, d->dcb->file_blocks[i]);
+        if(ret == -1){
+            printf("Lettura fallita\n");
+            free(ffb);
+            return -1;
+        }
+        strncat((*names)+ strlen(*names), ffb->fcb.name, strlen(ffb->fcb.name));
+        strcat((*names), "\n"); //lo metto per andare a capo dopo ogni nome
+    }
+
+    num_blocks_db = (BLOCK_SIZE - sizeof(BlockHeader)) / sizeof(int);
+
+    DirectoryBlock* db = (DirectoryBlock*) malloc(sizeof(DirectoryBlock));
+    next_dir_block = d->dcb->header.next_block;
+
+    while(next_dir_block != -1){
+        ret = DiskDriver_readBlock(d->sfs->disk, db, next_dir_block);
+        if(ret == -1){
+            printf("Errore nella lettura\n");
+            free(db);
+            free(ffb);
+            return -1;
+        }
+
+        for(i=0; (i < num_entry) && (i < num_blocks_db); i++){
+            ret = DiskDriver_readBlock(d->sfs->disk, ffb, db->file_blocks[i]);
+            if(ret == -1){
+                printf("Lettura fallita\n");
+                free(ffb);
+                free(db);
+                return -1;
+            }
+            strncat((*names)+ strlen(*names), ffb->fcb.name, strlen(ffb->fcb.name));
+            strcat((*names), "\n");
+        }
+        next_dir_block = db->header.next_block;
+    }
+
+    return 0;
+}
+
+FileHandle* SimpleFS_openFile(DirectoryHandle* d, const char* filename){
+    int first_file_block, ret;
+
+    if((d == NULL) || (strlen(filename) == 0)) return NULL;
+
+    //verifico che il file esista
+    first_file_block = SimpleFS_Search(d, filename,0);
+    if(first_file_block == -1){
+        printf("Il File desiderato non esiste\n");
+        return NULL;
+    }
+
+    //Se il file esiste e quindi può essere aperto, è necessario creare un file handle
+    FileHandle* file_handle = (FileHandle*) malloc(sizeof(FileHandle));
+    file_handle->sfs = d->sfs;
+    FirstFileBlock* ffb = (FirstFileBlock*) malloc(sizeof(FirstFileBlock));
+
+    ret = DiskDriver_readBlock(d->sfs->disk, ffb, first_file_block);
+    if(ret == -1){
+        printf("Errore nella lettura\n");
+        free(file_handle);
+        free(ffb);
+        return NULL;
+
+    }
+
+    file_handle->fcb = (FirstFileBlock*)malloc(sizeof(FirstFileBlock));
+    memcpy(file_handle->fcb, ffb, sizeof(FirstFileBlock));
+    file_handle->directory = (FirstDirectoryBlock*) malloc(sizeof(FirstDirectoryBlock));
+    memcpy(file_handle->directory, d->dcb, sizeof(FirstDirectoryBlock));
+    file_handle->current_block = (BlockHeader*) malloc(sizeof(BlockHeader));
+    memcpy(file_handle->current_block, &(ffb->header),sizeof(BlockHeader));
+    file_handle->pos_in_file =0;
+
+    free(ffb);
+
+    printf("File aperto con successo!\n");
+
+    return file_handle;
+
+}
+
+int SimpleFS_close(FileHandle* f){
+    if(f == NULL) return -1;
+
+    //Libero la memoria allocata nell'apertura del file
+    free(f->fcb);
+    free(f->directory);
+    free(f->current_block);
+    free(f);
+
+    printf("Chiusura avvenuta con successo!\n");
+    return 0;
+}
+
