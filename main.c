@@ -58,6 +58,7 @@ int main(int agc, char** argv) {
     stato_disco(sfs->disk);
 
     printf("\n\n");
+
     FileHandle* fh2 = (FileHandle*) malloc(sizeof(FileHandle));
     fh2 = SimpleFS_createFile(dir, file);
     printf("Dal momento che esiste già un altro file con lo stesso nome la funzione ritorna NULL\n");
@@ -65,6 +66,34 @@ int main(int agc, char** argv) {
 
     BitMap_print(sfs->disk->bitmap);
     stato_disco(sfs->disk);
+
+     printf("\n-------Verifica SimpleFS_readDir-------\n");
+
+    char* names;
+    int leggi_Dir = SimpleFS_readDir(&names, dir);
+    if(leggi_Dir == -1){
+        printf("Lettura dei nomi non avvenuta\n");
+    } else{
+        printf("Lettura dei nomi avvenuta con successo\n");
+    }
+
+    printf("Nomi: \n %s", names);
+
+    free(names);
+
+    printf("\n-------Verifica SimpleFS_close-------\n");
+
+    int chiusura =SimpleFS_close(fh);
+    if(chiusura == -1){
+        printf("Errore nella chiusura\n");
+        return -1;
+    }
+
+    printf("\n-------Verifica SimpleFS_openFile-------\n");
+
+    fh2 = SimpleFS_openFile(dir, file);
+    printf("Fh2: %p\n", fh2);
+
 
     return 0;
 }
