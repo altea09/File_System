@@ -14,7 +14,7 @@ void stato_disco(DiskDriver* disk){
 }
 
 int main(int agc, char** argv) {
-
+    int i;
 
     SimpleFS* sfs = (SimpleFS*) malloc(sizeof(SimpleFS));
 
@@ -94,6 +94,70 @@ int main(int agc, char** argv) {
     fh2 = SimpleFS_openFile(dir, file);
     printf("Fh2: %p\n", fh2);
 
+     printf("\n-------Verifica SimpleFS_write-------\n");
+    int dim = 16;
+    char data[dim];
+
+    for(i=0; i < dim; i++){
+        if((i % 2) == 0){
+            data[i] = '1';
+
+        } else {
+            data[i] = '0';
+        }
+
+    }
+
+    int scrittura = SimpleFS_write(fh2, &data,dim);
+    if(scrittura == -1){
+        printf("Scrittura fallita\n");
+    } else{
+        printf("Bytes scritti: %d\n", scrittura);
+    }
+    printf("Posizione nel file: %d\n", fh2->pos_in_file);
+    printf("Dimensione del file: %d\n", fh2->fcb->fcb.size_in_bytes);
+
+    printf("\n-------Verifica SimpleFS_read-------\n");
+
+    int seek = SimpleFS_seek(fh2, 1);
+    if(seek == -1){
+        printf("Seek fallita\n");
+    }else{
+         printf("Di quanti byte mi sono spostata rispetto alla posizione precedente (in questo caso 15): %d\n", seek);
+    }
+
+
+    char read[4];
+
+    int lettura = SimpleFS_read(fh2, &read,4);
+    if(lettura == -1){
+        printf("Lettura fallita\n");
+    } else{
+        printf("Bytes letti: %d\n", lettura);
+    }
+
+    for(i=0; i < 4; i++){
+        printf("%c", read[i]);
+    }
+    printf("\n");
+    printf("Posizione nel file: %d\n", fh2->pos_in_file);
+
+    printf("\n-------Verifica SimpleFS_seek-------\n");
+
+    seek = SimpleFS_seek(fh2, 7);
+    if(seek == -1){
+        printf("Seek fallita\n");
+    }
+    else{
+        printf("Pos_in file dopo la seek (deve essere pari a pos): %d\n", fh2->pos_in_file);
+        printf("Di quanti byte mi sono spostata rispetto alla posizione precedente (in questo caso 2): %d\n", seek);
+    }
+
+    chiusura =SimpleFS_close(fh2);
+    if(chiusura == -1){
+        printf("Errore nella chiusura\n");
+        return -1;
+    }
 
     return 0;
 }
