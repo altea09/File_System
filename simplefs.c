@@ -446,3 +446,545 @@ int SimpleFS_close(FileHandle* f){
     return 0;
 }
 
+int SimpleFS_write(FileHandle* f, void* data, int size){
+    int bytes_written = 0, bytes_to_write, num_byte_ffb, num_byte_fb, ret, index, diff, num_blocks, index_current_block, block_in_disk, blocco, num_bytes;
+
+    if((f == NULL) || (data == NULL) || (size == 0)) return 0;
+
+
+    num_byte_ffb = (BLOCK_SIZE - sizeof(BlockHeader) - sizeof(FileControlBlock));
+    num_byte_fb = (BLOCK_SIZE - sizeof(BlockHeader));
+
+    index = f->pos_in_file; //pos_in_file lo intendo come byte all'interno del file
+    bytes_to_write = size;
+
+    //sono il blocco 0 del file e non supero i bytes disponibili
+    if((f->current_block->block_in_file == 0) && (f->pos_in_file + bytes_to_write <= num_byte_ffb)){
+        FirstFileBlock* ffb = (FirstFileBlock*) malloc(sizeof(FirstFileBlock));
+        ret = DiskDriver_readBlock(f->sfs->disk, ffb, f->fcb->fcb.block_in_disk);
+        if(ret == -1){
+            printf("Lettura fallita\n");
+            free(ffb);
+            return -1;
+        }
+        while(bytes_written < bytes_to_write){
+            memcpy((ffb->data) + index,(char*)data + bytes_written, 1);
+            bytes_written += 1;
+            f->pos_in_file += 1;
+            index += 1;
+        }
+        printf("Cosa ho scritto nel file: %s\n", ffb->data);
+        ret = DiskDriver_writeBlock(f->sfs->disk, ffb, f->fcb->fcb.block_in_disk);
+        if(ret == -1){
+            printf("Scrittura fallita\n");
+            free(ffb);
+            return -1;
+        }
+        free(ffb);
+
+    }else if((f->current_block->block_in_file == 0) && (f->pos_in_file + bytes_to_write > num_byte_ffb)){ //sono il blocco 0 del file e supero i bytes disponibili
+        FirstFileBlock* ffb = (FirstFileBlock*) malloc(sizeof(FirstFileBlock));
+        ret = DiskDriver_readBlock(f->sfs->disk, ffb, f->fcb->fcb.block_in_disk);
+        if(ret == -1){
+            printf("Lettura fallita\n");
+            free(ffb);
+            return -1;
+        }
+        while(bytes_written < (num_byte_ffb - f->pos_in_file)){
+            memcpy((ffb->data) + index,data + bytes_written, 1);
+            bytes_written += 1;
+            f->pos_in_file +=1;
+            index +=1;
+        }
+        ret = DiskDriver_writeBlock(f->sfs->disk, ffb, f->fcb->fcb.block_in_disk);
+        if(ret == -1){
+            printf("Scrittura fallita\n");
+            free(ffb);
+            return -1;
+        }
+
+        free(ffb);
+        diff = bytes_to_write - (num_byte_ffb - f->pos_in_file); //num bytes da scrivere in altri blocchi/o
+        //calcolo di quanti blocchi ho bisogno
+        if(diff < BLOCK_SIZE- sizeof(BlockHeader)){
+            num_blocks = 1;
+        } else{
+            num_blocks = (diff/(BLOCK_SIZE- sizeof(BlockHeader))) + ((diff%(BLOCK_SIZE- sizeof(BlockHeader))==0)? 0:1);
+        }
+        int conta = 0;
+        while(conta < num_blocks){
+            FileBlock* fb = (FileBlock*) malloc(sizeof(FileBlock));
+            //caso in cui ho un blocco successivo
+            if(f->current_block->next_block != -1){
+                blocco = f->current_block->next_block;
+
+                ret = DiskDriver_readBlock(f->sfs->disk, fb, blocco);
+                if(ret == -1){
+                    printf("Lettura fallita\n");
+                    free(fb);
+                    return -1;
+                }
+
+                memcpy(f->current_block, &(fb->header), sizeof(BlockHeader));
+                num_bytes = 0;
+                index = 0;
+                while((bytes_written < bytes_to_write) && (num_bytes < num_byte_fb)){
+                    memcpy((fb->data) + index,data + bytes_written, 1);
+                    bytes_written += 1;
+                    f->pos_in_file +=1;
+                    num_bytes += 1;
+                    index += 1;
+                }
+                ret = DiskDriver_writeBlock(f->sfs->disk, fb, blocco);
+                if(ret == -1){
+                    printf("Scrittura fallita\n");
+                    free(fb);
+                    return -1;
+                }
+            } else{ //se non ho un blocco successivo devo prenderne uno vuoto
+                 blocco = DiskDriver_getFreeBlock(f->sfs->disk, 0);
+                 if(blocco == -1){
+                     free(fb);
+                     return -1;
+                }
+
+                ret = DiskDriver_readBlock(f->sfs->disk, fb, blocco);
+                if(ret == -1){
+                    printf("Lettura fallita\n");
+                    free(fb);
+                    return -1;
+                }
+                f->current_block->next_block = blocco;
+                fb->header.previous_block = f->fcb->fcb.block_in_disk;
+                fb->header.next_block = -1;
+                fb->header.block_in_file = f->current_block->block_in_file +1;
+
+
+                memcpy(f->current_block, &(fb->header), sizeof(BlockHeader));
+                num_bytes = 0;
+                index = 0;
+                while((bytes_written < bytes_to_write) && (num_bytes < num_byte_fb)){
+                    memcpy((fb->data) + index,data + bytes_written, 1);
+                    bytes_written += 1;
+                    f->pos_in_file += 1;
+                    num_bytes += 1;
+                    index += 1;
+                }
+                ret = DiskDriver_writeBlock(f->sfs->disk, fb, blocco);
+                if(ret == -1){
+                    printf("Scrittura fallita\n");
+                    free(fb);
+                    return -1;
+                }
+            }
+
+            free(fb);
+            ++conta;
+        }
+
+    }else if((f->current_block->block_in_file != 0) && (f->pos_in_file + bytes_to_write <= num_byte_ffb + (num_byte_fb)*f->current_block->block_in_file)){
+        //non sono un il blocco 0 e non supero i bytes disponibili
+        FileBlock* fb = (FileBlock*) malloc(sizeof(FileBlock));
+        index_current_block = f->current_block->block_in_file; // mi salvo l'indice del blocco all'interno del file
+        int conta = 0;
+        block_in_disk = f->fcb->header.next_block;
+        ret = DiskDriver_readBlock(f->sfs->disk, fb, block_in_disk);
+        if(ret == -1){
+            printf("Lettura fallita\n");
+            free(fb);
+            return -1;
+        }
+        memcpy(f->current_block, &(fb->header), sizeof(BlockHeader));
+        while(conta < index_current_block -1){
+            block_in_disk = f->current_block->next_block;
+            ret = DiskDriver_readBlock(f->sfs->disk, fb, block_in_disk);
+            if(ret == -1){
+                printf("Lettura fallita\n");
+                free(fb);
+                return -1;
+            }
+            memcpy(f->current_block, &(fb->header), sizeof(BlockHeader));
+            conta++;
+        }
+
+        index = ((f->pos_in_file - num_byte_ffb)%(num_byte_fb));
+        while(bytes_written < bytes_to_write){
+            memcpy((fb->data) + index,data + bytes_written, 1);
+            bytes_written += 1;
+            f->pos_in_file += 1;
+            index += 1;
+        }
+        ret = DiskDriver_writeBlock(f->sfs->disk, fb, block_in_disk);
+        if(ret == -1){
+            printf("Scrittura fallita\n");
+            free(fb);
+            return -1;
+        }
+        free(fb);
+   } else{ //non sono il blocco 0 ma supero i bytes disponibili
+        FileBlock* fb = (FileBlock*) malloc(sizeof(FileBlock));
+        index_current_block = f->current_block->block_in_file; // mi salvo l'indice del blocco all'interno del file
+        int conta = 0;
+        block_in_disk = f->fcb->header.next_block;
+        ret = DiskDriver_readBlock(f->sfs->disk, fb, block_in_disk);
+        if(ret == -1){
+            printf("Lettura fallita\n");
+            free(fb);
+            return -1;
+        }
+        memcpy(f->current_block, &(fb->header), sizeof(BlockHeader));
+        while(conta < index_current_block -1){
+            block_in_disk = f->current_block->next_block;
+            ret = DiskDriver_readBlock(f->sfs->disk, fb, block_in_disk);
+            if(ret == -1){
+                printf("Lettura fallita\n");
+                free(fb);
+                return -1;
+            }
+            memcpy(f->current_block, &(fb->header), sizeof(BlockHeader));
+            conta++;
+        }
+
+        index = ((f->pos_in_file - num_byte_ffb)%(num_byte_fb));
+        while(bytes_written < (num_byte_fb - index -1)){
+            memcpy((fb->data) + index,data + bytes_written, 1);
+            bytes_written += 1;
+            f->pos_in_file += 1;
+            index += 1;
+        }
+        ret = DiskDriver_writeBlock(f->sfs->disk, fb, block_in_disk);
+        if(ret == -1){
+            printf("Scrittura fallita\n");
+            free(fb);
+            return -1;
+        }
+
+
+        free(fb);
+        diff = bytes_to_write - (num_byte_fb - index -1); //num bytes da scrivere in altri blocchi/o
+        if(diff < BLOCK_SIZE- sizeof(BlockHeader)){
+            num_blocks = 1;
+        } else{
+            num_blocks = (diff/(BLOCK_SIZE- sizeof(BlockHeader))) + ((diff%(BLOCK_SIZE- sizeof(BlockHeader))==0)? 0:1);
+        }
+        conta = 0;
+        while(conta < num_blocks){
+            FileBlock* fb = (FileBlock*) malloc(sizeof(FileBlock));
+            if(f->current_block->next_block != -1){
+                blocco = f->current_block->next_block;
+
+                ret = DiskDriver_readBlock(f->sfs->disk, fb, blocco);
+                if(ret == -1){
+                    printf("Lettura fallita\n");
+                    free(fb);
+                    return -1;
+                }
+
+
+                memcpy(f->current_block, &(fb->header), sizeof(BlockHeader));
+                num_bytes = 0;
+                index = 0;
+                while((bytes_written < bytes_to_write) && (num_bytes < num_byte_fb)){
+                    memcpy((fb->data) + index,data + bytes_written, 1);
+                    bytes_written += 1;
+                    f->pos_in_file += 1;
+                    index += 1;
+                    num_bytes += 1;
+                }
+                ret = DiskDriver_writeBlock(f->sfs->disk, fb, blocco);
+                if(ret == -1){
+                    printf("Scrittura fallita\n");
+                    free(fb);
+                    return -1;
+                }
+            } else{
+                FileBlock* fb = (FileBlock*) malloc(sizeof(FileBlock));
+                 blocco = DiskDriver_getFreeBlock(f->sfs->disk, 0);
+                 if(blocco == -1){
+                     free(fb);
+                     return -1;
+                }
+
+                fb->header.block_in_file = f->current_block->block_in_file +1;
+                fb->header.previous_block = block_in_disk;
+                fb->header.next_block =-1;
+
+
+                memcpy(f->current_block, &(fb->header), sizeof(BlockHeader));
+                num_bytes = 0;
+                index = 0;
+                while((bytes_written < bytes_to_write) && (num_bytes < num_byte_fb)){
+                    memcpy((fb->data) + index,data + bytes_written, 1);
+                    bytes_written += 1;
+                    f->pos_in_file += 1;
+                    index += 1;
+                    num_bytes += 1;
+                }
+                ret = DiskDriver_writeBlock(f->sfs->disk, fb, blocco);
+                if(ret == -1){
+                    printf("Scrittura fallita\n");
+                    free(fb);
+                    return -1;
+                }
+            }
+
+            free(fb);
+            ++conta;
+        }
+    }
+
+        f->fcb->fcb.size_in_bytes += bytes_written;
+        return bytes_written;
+
+}
+
+int SimpleFS_read(FileHandle* f, void* data, int size){
+    int bytes_read =0, bytes_to_read, num_byte_ffb, num_byte_fb, ret, index, diff, num_blocks, index_current_block, block_in_disk, blocco, num_bytes;
+
+    if((f == NULL) || (data == NULL) || (size == 0)) return 0;
+
+    if(((f->fcb->fcb.size_in_bytes) - (f->pos_in_file)) <= size){
+        bytes_to_read = ((f->fcb->fcb.size_in_bytes) -(f->pos_in_file));
+    } else{
+        bytes_to_read = size;
+    }
+
+    num_byte_ffb = (BLOCK_SIZE - sizeof(BlockHeader) - sizeof(FileControlBlock));
+    num_byte_fb = (BLOCK_SIZE - sizeof(BlockHeader));
+
+
+    //sono il blocco 0 e non supero i bytes disponibili
+    if((f->current_block->block_in_file == 0) && (f->pos_in_file + bytes_to_read <= num_byte_ffb)){
+        index = f->pos_in_file; //pos_in_file lo intendo come byte all'interno del file (pos_in_file = 0--->byte 0)
+        FirstFileBlock* ffb = (FirstFileBlock*) malloc(sizeof(FirstFileBlock));
+        ret = DiskDriver_readBlock(f->sfs->disk, ffb, f->fcb->fcb.block_in_disk);
+        if(ret == -1){
+            printf("Lettura fallita\n");
+            free(ffb);
+            return -1;
+        }
+        while(bytes_read < bytes_to_read){
+            memcpy(data + bytes_read, (ffb->data) + index, 1);
+            bytes_read += 1;
+            index += 1;
+        }
+
+        free(ffb);
+
+    } else if((f->current_block->block_in_file == 0) && (f->pos_in_file + bytes_to_read > num_byte_ffb)){
+        //sono il blocco 0 ma supero i bytes disponibili
+
+        FirstFileBlock* ffb = (FirstFileBlock*) malloc(sizeof(FirstFileBlock));
+        ret = DiskDriver_readBlock(f->sfs->disk, ffb, f->fcb->fcb.block_in_disk);
+        if(ret == -1){
+            printf("Lettura fallita\n");
+            free(ffb);
+            return -1;
+        }
+        index = f->pos_in_file;
+        while(bytes_read < (num_byte_ffb-index)){
+            memcpy(data + bytes_read, (ffb->data) + index, 1);
+            index += 1;
+            bytes_read += 1;
+        }
+        free(ffb);
+        diff = bytes_to_read - (num_byte_ffb - f->pos_in_file); //num bytes da leggere in altri blocchi/o
+        if(diff < BLOCK_SIZE- sizeof(BlockHeader)){
+            num_blocks = 1;
+        } else{
+            num_blocks = (diff/(BLOCK_SIZE - sizeof(BlockHeader))) + ((diff % (BLOCK_SIZE - sizeof(BlockHeader))==0)? 0:1);
+        }
+        int conta = 0;
+        while(conta < num_blocks){
+            if(f->current_block->next_block != -1){
+                blocco = f->current_block->next_block;
+                FileBlock* fb = (FileBlock*) malloc(sizeof(FileBlock));
+
+                ret = DiskDriver_readBlock(f->sfs->disk, fb, blocco);
+                if(ret == -1){
+                    printf("Lettura fallita\n");
+                    free(fb);
+                    return -1;
+                }
+                memcpy(f->current_block, &(fb->header), sizeof(BlockHeader));
+                index = 0;
+                num_bytes = 0;
+                while((num_bytes < num_byte_fb) && (bytes_read < bytes_to_read)){
+                    memcpy(data + bytes_read, (fb->data) + index, 1);
+                    index += 1;
+                    bytes_read += 1;
+                    index += 1;
+                    num_bytes += 1;
+                }
+            free(fb);
+
+            } else{
+                printf("Impossibile continuare a leggere dati dal file\n");
+                return -1;
+            }
+
+            ++conta;
+        }
+
+    } else if((f->current_block->block_in_file != 0) && (f->pos_in_file + bytes_to_read <= num_byte_ffb + ((num_byte_fb)*f->current_block->block_in_file))){
+        //non sono il blocco 0 e non supero i bytes disponibili
+        FileBlock* fb = (FileBlock*) malloc(sizeof(FileBlock));
+        index_current_block = f->current_block->block_in_file; // mi salvo l'indice del blocco all'interno del file
+        int conta = 0;
+        block_in_disk = f->fcb->header.next_block;
+        ret = DiskDriver_readBlock(f->sfs->disk, fb, block_in_disk);
+        if(ret == -1){
+            printf("Lettura fallita\n");
+            free(fb);
+            return -1;
+        }
+        memcpy(f->current_block, &(fb->header), sizeof(BlockHeader));
+        while(conta < index_current_block -1){
+            block_in_disk = f->current_block->next_block;
+            ret = DiskDriver_readBlock(f->sfs->disk, fb, block_in_disk);
+            if(ret == -1){
+                printf("Lettura fallita\n");
+                free(fb);
+                return -1;
+            }
+            memcpy(f->current_block, &(fb->header), sizeof(BlockHeader));
+            conta++;
+        }
+
+        index = ((f->pos_in_file - num_byte_ffb)%(num_byte_fb));
+        while(bytes_read < bytes_to_read){
+            memcpy(data + bytes_read, (fb->data) + index, 1);
+            index +=1;
+            bytes_read += 1;
+        }
+        free(fb);
+    } else{ //non sono il blocco 0 ma supero di bytes disponibili
+        FileBlock* fb = (FileBlock*) malloc(sizeof(FileBlock));
+        index_current_block = f->current_block->block_in_file; // mi salvo l'indice del blocco all'interno del file
+        int conta = 0;
+        block_in_disk = f->fcb->header.next_block;
+        ret = DiskDriver_readBlock(f->sfs->disk, fb, block_in_disk);
+        if(ret == -1){
+            printf("Lettura fallita\n");
+            free(fb);
+            return -1;
+        }
+        memcpy(f->current_block, &(fb->header), sizeof(BlockHeader));
+        while(conta < index_current_block -1){
+            block_in_disk = f->current_block->next_block;
+            ret = DiskDriver_readBlock(f->sfs->disk, fb, block_in_disk);
+            if(ret == -1){
+                printf("Lettura fallita\n");
+                free(fb);
+                return -1;
+            }
+            memcpy(f->current_block, &(fb->header), sizeof(BlockHeader));
+            conta++;
+        }
+
+
+        index = ((f->pos_in_file - num_byte_ffb)%(num_byte_fb));
+        while(bytes_read < (num_byte_fb -index -1)){
+            memcpy(data + bytes_read, (fb->data) + index, 1);
+            index += 1;
+            f->pos_in_file += 1;
+            bytes_read += 1;
+        }
+        diff = bytes_to_read - (num_byte_fb - index -1); //num bytes da leggere in altri blocchi/o
+        if(diff < BLOCK_SIZE- sizeof(BlockHeader)){
+            num_blocks = 1;
+        } else{
+            num_blocks = (diff/(BLOCK_SIZE- sizeof(BlockHeader))) + ((diff%(BLOCK_SIZE- sizeof(BlockHeader))==0)? 0:1);
+        }
+        conta=0;
+        while(conta < num_blocks){
+            FileBlock* fb = (FileBlock*) malloc(sizeof(FileBlock));
+            if(f->current_block->next_block != -1){
+                blocco = f->current_block->next_block;
+                ret = DiskDriver_readBlock(f->sfs->disk, fb, blocco);
+                if(ret == -1){
+                    printf("Lettura fallita\n");
+                    free(fb);
+                    return -1;
+                }
+
+                memcpy(f->current_block, &(fb->header), sizeof(BlockHeader));
+                index = 0;
+                num_bytes = 0;
+                while((bytes_read < bytes_to_read) &&(num_bytes < num_byte_fb)){
+                    memcpy(data + bytes_read, (fb->data) + index, 1);
+                    index += 1;
+                    bytes_read += 1;
+                    num_bytes += 1;
+                }
+
+            }else{
+                printf("Impossibile continuare a leggere nel file: blocchi insufficienti\n");
+                return -1;
+            }
+            free(fb);
+            ++conta;
+        }
+    }
+
+    f->pos_in_file += bytes_read;
+    return bytes_read;
+
+}
+
+int SimpleFS_seek(FileHandle* f, int pos){ //pos in bytes (pos=1 dopo il primo byte)
+    int num_block, num_byte_firstFileBlock, num_byte_fileBlock, block, next_block, ret, pos_corrente;
+
+    if((f == NULL) || (pos > (f->fcb->fcb.size_in_bytes)) || (pos < 0)) return -1;
+
+
+    num_byte_firstFileBlock = (BLOCK_SIZE- sizeof(BlockHeader) - sizeof(FileControlBlock));
+    num_byte_fileBlock = (BLOCK_SIZE - sizeof(BlockHeader));
+
+    if((f->current_block->block_in_file == 0) &&(pos < num_byte_firstFileBlock)){
+        pos_corrente = f->pos_in_file;
+        f->pos_in_file = pos;
+        if(pos_corrente> f->pos_in_file){
+            return pos_corrente - f->pos_in_file; //restituisco il valore assoluto
+        } else{
+            return f->pos_in_file - pos_corrente;
+        }
+    } else {
+        FileBlock* fb = (FileBlock*) malloc(sizeof(FileBlock));
+        block = pos - num_byte_firstFileBlock; //calcolo di quanti byte dopo il primo blocco mi devo spostare
+        num_block = (block/num_byte_fileBlock) +(((block%num_byte_fileBlock)==0)?0:1); //vedo a quanti blocchi corrispondono i byte di sopra
+        int conta = 0;
+        if(f->fcb->header.next_block == -1){
+            printf("Errore: blocco non esistente\n");
+            return -1;
+        }
+        next_block = f->current_block->next_block;
+        while(conta < num_block){
+            if(next_block == -1){
+                printf("Errore: blocco non esistente\n");
+                return -1;
+            }
+
+            ret = DiskDriver_readBlock(f->sfs->disk, fb, next_block);
+            if(ret == -1){
+                printf("Errore\n");
+                return -1;
+            }
+
+            next_block = fb->header.next_block;
+            ++conta;
+        }
+
+        pos_corrente = f->pos_in_file;
+        f->pos_in_file = pos;
+        free(fb);
+        if(pos_corrente> f->pos_in_file){
+            return pos_corrente - f->pos_in_file;
+        } else{
+            return f->pos_in_file - pos_corrente;
+        }
+    }
+}
+
+
+
