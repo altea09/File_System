@@ -1,7 +1,7 @@
 #pragma once
 
 #define BYTE_SIZE 8
-#define NUM_BLOCKS 17  //numero dei blocchi dati (num_blocks nei parametri delle funzioni)
+#define NUM_BLOCKS 17  //numero dei blocchi totali (num_blocks nei parametri delle funzioni)
 #define NUM_BITS_BITMAP  (NUM_BLOCKS-1)
 
 
