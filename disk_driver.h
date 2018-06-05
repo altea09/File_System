@@ -40,7 +40,7 @@ int DiskDriver_readBlock(DiskDriver* disk, void* dest, int block_num);
 // returns -1 if operation not possible
 int DiskDriver_writeBlock(DiskDriver* disk, void* src, int block_num);
 
-// frees a block in position block_num, and alters the bitmap accordingly
+// frees the block block_num, and alters the bitmap accordingly
 // returns -1 if operation not possible
 int DiskDriver_freeBlock(DiskDriver* disk, int block_num);
 
