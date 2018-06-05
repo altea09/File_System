@@ -149,10 +149,10 @@ FileHandle* SimpleFS_createFile(DirectoryHandle* d, const char* filename){
 }
 
 //restituisce -1 se non trova il file o è successo qualche altro problema, il primo blocco del file su disco se lo trova (flag = 1 cerco directory, flag = 0 cerco file)
-int SimpleFS_Search(DirectoryHandle* d, const char* filename, int flag){
+int SimpleFS_Search(DirectoryHandle* d, const char* name, int flag){
     int num_entry_dir, num_blocks_fdb, i, ret, next_dir_block, num_blocks_db;
 
-    if((d == NULL) ||(filename == NULL) || ((strlen(filename)) == 0))return -1;
+    if((d == NULL) ||(name == NULL) || ((strlen(name)) == 0))return -1;
 
     int first_file_block = -1; //flag per capire se un file con lo stesso nome è stato trovato (-1= non trovato) -->se trovato il blocco su disco
 
@@ -176,7 +176,7 @@ int SimpleFS_Search(DirectoryHandle* d, const char* filename, int flag){
             return -1;
         }
 
-        if((strncmp(ffb->fcb.name, filename, strlen(filename))) == 0){
+        if((strncmp(ffb->fcb.name, name, strlen(name))) == 0){
             if(ffb->fcb.is_dir == cosa_cerco){
                 printf("Trovato un/a file/direcotry con lo stesso nome\n");
                 first_file_block = d->dcb->file_blocks[i];
@@ -211,7 +211,7 @@ int SimpleFS_Search(DirectoryHandle* d, const char* filename, int flag){
                 free(db);
                 return -1;
             }
-            if((strncmp(ffb->fcb.name, filename, strlen(filename))) == 0){
+            if((strncmp(ffb->fcb.name, name, strlen(name))) == 0){
                 if(ffb->fcb.is_dir == cosa_cerco){
                     printf("Trovato un/a file/directory con lo stesso nome\n");
                     first_file_block = db->file_blocks[i];
@@ -985,6 +985,450 @@ int SimpleFS_seek(FileHandle* f, int pos){ //pos in bytes (pos=1 dopo il primo b
         }
     }
 }
+
+int SimpleFS_changeDir(DirectoryHandle* d, char* dirname){
+    int ret, trovata;
+
+    if((d == NULL) || (dirname == NULL) || (strlen(dirname) == 0)) return -1;
+
+    //Verifico se dirname coincide con ".."
+    if(strncmp("..", dirname, strlen(dirname)) == 0){
+        if(d->directory == NULL){
+            printf("Non esiste una directory padre\n");
+            return -1;
+        }
+
+        //Creo un directory handle di appoggio in cui metto il directory handle corrente
+        DirectoryHandle* dh = (DirectoryHandle*) malloc(sizeof(DirectoryHandle));
+        dh->sfs = d->sfs;
+        dh->dcb = (FirstDirectoryBlock*) malloc(sizeof(FirstDirectoryBlock));
+
+        ret = DiskDriver_readBlock(d->sfs->disk, dh->dcb, d->directory->fcb.block_in_disk);
+        if(ret == -1){
+            printf("Errore nella lettura\n");
+            free(dh);
+            return -1;
+        }
+
+        //verifico se la directory in cui mi voglio spostare ha "un padre"
+        if(d->directory->fcb.directory_block == -1){
+            dh->directory = NULL;
+        } else {
+            //caso in cui esiste la directory padre della directory in cui mi voglio spostare
+            dh->directory = (FirstDirectoryBlock*) malloc(sizeof(FirstDirectoryBlock));
+
+            ret = DiskDriver_readBlock(d->sfs->disk, dh->directory, d->directory->fcb.directory_block);
+            if(ret == -1){
+                printf("Errore nella lettura\n");
+                free(dh);
+                return -1;
+            }
+
+        }
+
+        //Faccio side effect sul directory handle passato alla funzione
+        d->sfs = dh->sfs;
+        d->dcb = dh->dcb;
+        d->directory = dh->directory;
+        memcpy(d->current_block, &(d->dcb->header), sizeof(BlockHeader));
+        d->pos_in_dir=0;
+        d->pos_in_block=0;
+
+        free(dh);
+        return 0;
+    }
+
+    //caso in cui non voglia spostarmi nella directory padre ma in un'altra directory
+    trovata = SimpleFS_Search(d, dirname, 1); //cerca una directory di nome dirname nella directory corrente--->
+                                            //se la trova restituisce il blocco logico che contiene il suo primo blocco
+
+    if(trovata == -1){
+        printf("Non esiste la directory cercata nella directory corrente\n");
+        return -1;
+    }
+
+    //se la cartella esiste devo aggiornare il directory handle: ne creo prima uno di appoggio.
+    DirectoryHandle* dh = (DirectoryHandle*) malloc(sizeof(DirectoryHandle));
+    dh->sfs = d->sfs;
+
+    FirstDirectoryBlock* fdb = (FirstDirectoryBlock*) malloc(sizeof(FirstDirectoryBlock));
+    ret = DiskDriver_readBlock(d->sfs->disk, fdb, trovata);
+    if(ret == -1){
+        printf("Errore nella lettura\n");
+        free(dh);
+        free(fdb);
+        return -1;
+    }
+
+    dh->dcb = fdb;
+
+    if(fdb->fcb.directory_block == -1){
+        dh->directory = NULL;
+    } else{
+        dh->directory = (FirstDirectoryBlock*) malloc(sizeof(FirstDirectoryBlock));
+
+        ret = DiskDriver_readBlock(d->sfs->disk, dh->directory, fdb->fcb.directory_block);
+        if(ret == -1){
+            printf("Errore nella lettura\n");
+            free(dh);
+            free(fdb);
+            return -1;
+        }
+    }
+    dh->pos_in_dir=0;
+    dh->pos_in_block=0;
+
+    //Aggiorno il directory handle "vero"
+    d->sfs = dh->sfs;
+    d->dcb = dh->dcb;
+    d->directory = dh->directory;
+    memcpy(d->current_block, &(fdb->header), sizeof(BlockHeader));
+    d->pos_in_dir= dh->pos_in_dir;
+    d->pos_in_block=dh->pos_in_block;
+
+    free(dh);
+
+    return 0;
+
+}
+
+int SimpleFS_mkDir(DirectoryHandle* d, char* dirname){
+    int free_block, num_int_fdb, scrittura,i;
+
+    if((d == NULL) || (dirname == NULL) || (strlen(dirname) == 0)) return -1;
+
+    //verifico se esiste già una sottodirectory con lo stesso nome-->se sì non posso creare la directory
+    int ret = SimpleFS_Search(d, dirname,1);
+    if(ret != -1){
+        printf("Trovata una directory con lo stesso nome nella directory corrente\n");
+        return -1;
+    }
+
+    //se non trovo una sottodirectory con lo stesso nome posso creare la nuova directory
+    free_block = DiskDriver_getFreeBlock(d->sfs->disk, 0);
+    if(free_block == -1){
+        printf("Non ci sono più blocchi disponibili\n");
+        return -1;
+    }
+
+    //Mi creo il first directory block
+    FirstDirectoryBlock* fdb = (FirstDirectoryBlock*) malloc(sizeof(FirstDirectoryBlock));
+    fdb->header.previous_block = -1;
+    fdb->header.next_block = -1;
+    fdb->header.block_in_file = 0;
+
+    //Riempio il file control block
+    fdb->fcb.directory_block = d->dcb->fcb.block_in_disk;
+    fdb->fcb.block_in_disk = free_block;
+    strncpy(fdb->fcb.name, dirname, strlen(dirname));
+    fdb->fcb.size_in_bytes = BLOCK_SIZE;
+    fdb->fcb.size_in_blocks = 1;
+    fdb->fcb.is_dir = 1;
+
+    fdb->num_entries = 0;
+
+    num_int_fdb = ((BLOCK_SIZE - sizeof(BlockHeader) - sizeof(FileControlBlock) -sizeof(int))/sizeof(int));
+
+    for(i=0; i < num_int_fdb; i++){
+        fdb->file_blocks[i] = -1;
+    }
+
+    //Aggiorno gli elementi della directory padre
+    ret = SimpleFS_updateElements(d, free_block);
+    if(ret == -1){
+        printf("Errore nell' aggiornamento degli elementi\n");
+        exit(-1);
+    }
+
+    scrittura = DiskDriver_writeBlock(d->sfs->disk, (void*) fdb, free_block);
+    if(scrittura == -1){
+        free(fdb);
+        exit(-1);
+    }
+
+    return 0;
+
+}
+
+int SimpleFS_remove(DirectoryHandle* d, char* name){
+    int num_blocks_fdb, num_blocks_db, trovato,i,lettura, num_block_dir, next_block, blocco_corrente;
+    int primo_blocco, next_file_block, block_disk_file, ret, next_dir_block, block, scrittura;
+    FirstFileBlock first_file_block;
+    FirstDirectoryBlock* fdb;
+    DirectoryBlock* db = (DirectoryBlock*) malloc(sizeof(DirectoryBlock));
+    DirectoryBlock* db2= (DirectoryBlock*) malloc(sizeof(DirectoryBlock));
+    FirstFileBlock ffb;
+
+    if((d == NULL) || (name == NULL) || (strlen(name)==0)) return -1;
+
+    trovato = -1; //flag per salvare l'elemento trovato
+    fdb = d->dcb;
+
+    num_blocks_fdb = (BLOCK_SIZE - sizeof(BlockHeader) - sizeof(FileControlBlock) - sizeof(int))/sizeof(int);
+    num_blocks_db = (BLOCK_SIZE - sizeof(BlockHeader))/sizeof(int);
+
+
+    //Cerco "name" nel primo blocco della directory
+    num_block_dir = 0;
+    for(i = 0; i < num_blocks_fdb; i++){
+        if(fdb->file_blocks[i] > 0){
+            lettura = DiskDriver_readBlock(d->sfs->disk,&first_file_block, fdb->file_blocks[i]);
+            if(lettura == -1){
+                free(db);
+                free(db2);
+                return -1;
+            }
+            if(strncmp(first_file_block.fcb.name,name,strlen(name)) == 0){
+                trovato = i; //trovato mi indica l'indice dell'elemento cercato
+                break;
+            }
+        }
+    }
+
+
+    next_block = fdb->header.next_block;
+    blocco_corrente = fdb->fcb.block_in_disk;
+
+    //Se ci sono blocchi successivi della directory continuo la ricerca se non ha già dato risultati nel primo blocco.
+    while((trovato == -1) && (next_block != -1)){
+        lettura = DiskDriver_readBlock(d->sfs->disk, db, next_block);
+        if(lettura == -1){
+            free(db);
+            free(db2);
+            return -1;
+        }
+
+        for(i = 0; i < num_blocks_db; i++){
+            if(db->file_blocks[i] > 0){
+                lettura = DiskDriver_readBlock(d->sfs->disk,&first_file_block,db->file_blocks[i]);
+                if(lettura == -1){
+                    free(db);
+                    free(db2);
+                    return -1;
+                }
+
+                if(strncmp(first_file_block.fcb.name,name,strlen(name)) == 0){
+                    trovato = i;
+                    break;
+                }
+            }
+        }
+
+        blocco_corrente = next_block;
+        next_block = db->header.next_block;
+        num_block_dir += 1;
+    }
+
+    if(trovato == -1){
+        free(db);
+        free(db2);
+        return -1;
+    } else{
+        if(num_block_dir) {
+            primo_blocco = db->file_blocks[trovato];
+        }else{
+            primo_blocco = fdb->file_blocks[trovato];
+        }
+    }
+
+
+    lettura = DiskDriver_readBlock(d->sfs->disk, &ffb, primo_blocco);
+    if(lettura == -1){
+        free(db);
+        free(db2);
+        return -1;
+    }
+
+    if(ffb.fcb.is_dir == 0){	//sono un file
+        FirstFileBlock* first_file_block = (FirstFileBlock*) malloc(sizeof(FirstFileBlock));
+        next_file_block = ffb.header.next_block;
+        block_disk_file = primo_blocco;
+        while(next_file_block != -1){
+            lettura = DiskDriver_readBlock(d->sfs->disk, first_file_block, next_file_block);
+            if(lettura == -1){
+                free(first_file_block);
+                free(db);
+                free(db2);
+                return -1;
+            }
+            block_disk_file = next_file_block;
+            ret = DiskDriver_freeBlock(d->sfs->disk, block_disk_file);
+            if(ret == -1){
+                free(first_file_block);
+                free(db);
+                free(db2);
+                printf("Errore nella liberazione del blocco\n");
+                return -1;
+            }
+
+            next_file_block = first_file_block->header.next_block;
+        }
+
+        ret= DiskDriver_freeBlock(d->sfs->disk, primo_blocco);
+        if(ret == -1){
+            free(first_file_block);
+            free(db);
+            free(db2);
+            printf("Errore nella liberazione del blocco\n");
+            return -1;
+        }
+        free(first_file_block);
+		d->dcb = fdb;
+    } else{
+        // sono una directory
+
+		FirstDirectoryBlock* first_block_dir = (FirstDirectoryBlock*) malloc(sizeof(FirstDirectoryBlock));
+        lettura = DiskDriver_readBlock(d->sfs->disk, first_block_dir, primo_blocco);
+        if(lettura == -1){
+            free(first_block_dir);
+            free(db);
+            free(db2);
+            return -1;
+        }
+
+        if(first_block_dir->num_entries == 0){
+            DiskDriver_freeBlock(d->sfs->disk, primo_blocco);
+            d->dcb = fdb;
+            free(first_block_dir);
+            free(db);
+            free(db2);
+        } else{
+            ret = SimpleFS_changeDir(d, first_block_dir->fcb.name);
+            if(ret == -1){
+                printf("Cambio directory fallito\n");
+                free(first_block_dir);
+                free(db);
+                free(db2);
+                return -1;
+            }
+
+            for(i = 0; i < num_blocks_fdb; i++){
+                if(first_block_dir->file_blocks[i] > 0){
+                     lettura = DiskDriver_readBlock(d->sfs->disk, &ffb, first_block_dir->file_blocks[i]);
+                     if(lettura == -1){
+                         printf("Errore\n");
+                         free(db);
+                         free(db2);
+                         free(first_block_dir);
+                         return -1;
+                    }
+                    SimpleFS_remove(d, ffb.fcb.name);
+                }
+            }
+
+			next_dir_block = first_block_dir->header.next_block;
+            block= primo_blocco;
+
+            while(next_dir_block != -1){
+                lettura = DiskDriver_readBlock(d->sfs->disk, db2, next_dir_block);
+                if(lettura == -1){
+                    printf("Errore\n");
+                    free(db);
+                    free(db2);
+                    free(first_block_dir);
+                    return -1;
+                }
+
+                for(i = 0; i < num_blocks_db; i++){
+                   lettura = DiskDriver_readBlock(d->sfs->disk, &ffb, db2->file_blocks[i]);
+                    if(lettura == -1){
+                        printf("Errore\n");
+                        free(db);
+                        free(db2);
+                        free(first_block_dir);
+                        return -1;
+                    }
+                    SimpleFS_remove(d, ffb.fcb.name);
+                }
+                block = next_dir_block;
+                ret = DiskDriver_freeBlock(d->sfs->disk, block);
+                if(ret == -1){
+                    free(db);
+                    free(db2);
+                    free(first_block_dir);
+                    printf("Errore nella liberazione del blocco\n");
+                    return -1;
+                }
+                next_dir_block = db2->header.next_block;
+            }
+
+			ret = DiskDriver_freeBlock(d->sfs->disk, primo_blocco);
+            if(ret == -1){
+                free(db);
+                free(db2);
+                free(first_block_dir);
+                printf("Errore nella liberazione del blocco\n");
+                return -1;
+            }
+			d->dcb = fdb;
+            free(first_block_dir);
+            free(db);
+            free(db2);
+        }
+    }
+
+    //Aggiorno il contenuto della directory e il numero delle entry
+    if(num_block_dir){
+        db->file_blocks[trovato] = -1;
+        fdb->num_entries -= 1;
+
+        ret= DiskDriver_freeBlock(d->sfs->disk, blocco_corrente);
+        if(ret == -1){
+            free(db);
+            free(db2);
+            printf("Errore nella liberazione del blocco\n");
+            return -1;
+        }
+		scrittura = DiskDriver_writeBlock(d->sfs->disk, db, blocco_corrente);
+        if(scrittura == -1){
+            free(db);
+            free(db2);
+            printf("Errore nella scrittura del blocco\n");
+            return -1;
+        }
+
+        ret = DiskDriver_freeBlock(d->sfs->disk, fdb->fcb.block_in_disk);
+        if(ret == -1){
+            free(db);
+            free(db2);
+            printf("Errore nella liberazione del blocco\n");
+            return -1;
+        }
+		scrittura = DiskDriver_writeBlock(d->sfs->disk, fdb, fdb->fcb.block_in_disk);
+        if(scrittura == -1){
+            free(db);
+            free(db2);
+            printf("Errore nella scrittura del blocco\n");
+            return -1;
+        }
+        return 0;
+
+    } else {
+        fdb->file_blocks[trovato] = -1;
+        fdb->num_entries-=1;
+
+        ret = DiskDriver_freeBlock(d->sfs->disk, fdb->fcb.block_in_disk);
+        if(ret == -1){
+            free(db);
+            free(db2);
+            printf("Errore nella liberazione del blocco\n");
+            return -1;
+        }
+
+		scrittura = DiskDriver_writeBlock(d->sfs->disk, fdb, fdb->fcb.block_in_disk);
+        if(scrittura == -1){
+            free(db);
+            free(db2);
+            printf("Errore nella scrittura del blocco\n");
+            return -1;
+        }
+        return 0;
+    }
+
+    return -1;
+
+}
+
 
 
 
