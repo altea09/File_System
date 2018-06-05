@@ -139,14 +139,14 @@ int SimpleFS_seek(FileHandle* f, int pos);
 // -1 on error
 int SimpleFS_mkDir(DirectoryHandle* d, char* dirname);
 
-// removes the file in the current directory
+// removes the file "name" in the current directory
 // returns -1 on failure 0 on success
-// if a directory, it removes recursively all contained files
-int SimpleFS_remove(DirectoryHandle* d, char* filename);
+// if "name" is a directory, it removes recursively all contained files
+int SimpleFS_remove(DirectoryHandle* d, char* name);
 
-//cerca un/a file/directory "filename" nella directory d: se lo trova ritorna il suo primo blocco altrimenti -1.
+//cerca un/a file/directory "name" nella directory d: se lo trova ritorna il suo primo blocco altrimenti -1.
 // Flag indica se deve cercare un file o una directory (0 file, 1 directory).
-int SimpleFS_Search(DirectoryHandle* d, const char* filename, int flag);
+int SimpleFS_Search(DirectoryHandle* d, const char* name, int flag);
 
 //aggiorna gli elementi della directory: ritorna 0 se va tutto ok, -1 in caso di fallimento.
 int SimpleFS_updateElements(DirectoryHandle* d, int new_block_file);
