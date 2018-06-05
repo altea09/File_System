@@ -149,7 +149,7 @@ int main(int agc, char** argv) {
         printf("Seek fallita\n");
     }
     else{
-        printf("Pos_in file dopo la seek (deve essere pari a pos): %d\n", fh2->pos_in_file);
+        printf("Pos_in file dopo la seek (deve essere pari a 7 in questo caso): %d\n", fh2->pos_in_file);
         printf("Di quanti byte mi sono spostata rispetto alla posizione precedente (in questo caso 2): %d\n", seek);
     }
 
@@ -158,6 +158,120 @@ int main(int agc, char** argv) {
         printf("Errore nella chiusura\n");
         return -1;
     }
+
+     printf("\n-------Verifica SimpleFS_remove-------\n");
+
+    int rimuovi = SimpleFS_remove(dir, file);
+    if(rimuovi == -1){
+        printf("Errore: rimozione non riuscita\n");
+    } else{
+        printf("Rimozione avvenuta\n");
+        printf("Numero di entry della directory: %d\n", dir->dcb->num_entries);
+    }
+
+    BitMap_print(sfs->disk->bitmap);
+
+    stato_disco(sfs->disk);
+
+    printf("\n-------Verifica SimpleFS_mkDir-------\n");
+
+    char* dirname = "prova";
+    int crea_cartella = SimpleFS_mkDir(dir, dirname);
+    if(crea_cartella == -1){
+        printf("Errore nella creazione della cartella\n");
+    }
+
+    BitMap_print(sfs->disk->bitmap);
+
+    stato_disco(sfs->disk);
+
+    printf("\n-------Verifica SimpleFS_changeDir-------\n");
+
+
+    int change = SimpleFS_changeDir(dir, dirname);
+    if(change == -1){
+        printf("Errore nel cambio directory\n");
+    } else{
+        printf("Cambio directory avvenuto con successo\n");
+        printf("Nome della directory corrente: %s\n", dir->dcb->fcb.name);
+    }
+
+    printf("\n-------Verifica-------\n");
+
+    printf("Creo una cartella nella directory 'prova'\n");
+    char* dirname1 = "first";
+    int crea_cartella1 = SimpleFS_mkDir(dir, dirname1);
+    if(crea_cartella1 == -1){
+        printf("Errore nella creazione della cartella\n");
+    }
+
+    BitMap_print(sfs->disk->bitmap);
+
+    stato_disco(sfs->disk);
+
+    printf("\n\n");
+
+    printf("Creo un file nella directory 'prova'\n");
+    FileHandle* fh4 =(FileHandle*) malloc(sizeof(FileHandle));
+    char* file1 = "file1";
+
+    fh4 = SimpleFS_createFile(dir, file1);
+
+    BitMap_print(sfs->disk->bitmap);
+
+    stato_disco(sfs->disk);
+
+    chiusura =SimpleFS_close(fh4);
+    if(chiusura == -1){
+        printf("Errore nella chiusura\n");
+        return -1;
+    }
+
+    printf("\n\n");
+    printf("Nome della directory: %s\n", dir->dcb->fcb.name);
+    printf("Numero di entry della directory: %d\n", dir->dcb->num_entries);
+
+    printf("Leggo il contenuto della directory 'prova'\n");
+
+    char* names2;
+    leggi_Dir = SimpleFS_readDir(&names2, dir);
+    if(leggi_Dir == -1){
+        printf("Lettura dei nomi non avvenuta\n");
+    } else{
+        printf("Lettura dei nomi avvenuta con successo\n");
+    }
+
+    printf("Nomi: \n %s", names2);
+
+    free(names2);
+    printf("\n\n");
+
+    printf("Risalgo all'altezza della directory root\n");
+
+    change = SimpleFS_changeDir(dir, "..");
+    if(change == -1){
+        printf("Errore nel cambio directory\n");
+    } else{
+        printf("Nome della directory corrente: %s\n", dir->dcb->fcb.name);
+        printf("Cambio directory avvenuto con successo\n");
+
+    }
+
+
+    printf("\n\n");
+
+    printf("Rimuovo la cartella 'prova' contenuta in root e il suo contenuto ricorsivamente\n");
+    rimuovi = SimpleFS_remove(dir, dirname);
+    if(rimuovi == -1){
+        printf("Errore: rimozione non riuscita\n");
+    } else{
+        printf("Rimozione avvenuta\n");
+        printf("Numero di entry della directory root: %d\n", dir->dcb->num_entries);
+    }
+
+    BitMap_print(sfs->disk->bitmap);
+
+    stato_disco(sfs->disk);
 
     return 0;
 }
